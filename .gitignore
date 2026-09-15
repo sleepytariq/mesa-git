@@ -13,7 +13,6 @@
 *.old
 *.db
 *.files
-*.mymesapatch
 src/
 pkg/
 mesa-aco/
