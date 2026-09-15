@@ -1,0 +1,67 @@
+From d45df26e84b2819a71c988dc5d3f90062e59d688 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Mon, 31 Aug 2026 11:23:53 +0200
+Subject: [PATCH] hack: workaround nms fma pattern
+
+---
+ src/amd/vulkan/radv_shader.c          |  1 +
+ src/compiler/nir/nir.h                |  1 +
+ src/compiler/nir/nir_opt_algebraic.py | 11 +++++++++++
+ 3 files changed, 13 insertions(+)
+
+diff --git a/src/amd/vulkan/radv_shader.c b/src/amd/vulkan/radv_shader.c
+index f5506faec75..dd4ed12c5b5 100644
+--- a/src/amd/vulkan/radv_shader.c
++++ b/src/amd/vulkan/radv_shader.c
+@@ -212,6 +212,7 @@ radv_optimize_nir(struct nir_shader *shader, bool optimize_conservatively)
+       NIR_LOOP_PASS(progress, skip, shader, nir_opt_peephole_select, &peephole_select_options);
+       NIR_LOOP_PASS(progress, skip, shader, nir_opt_constant_folding);
+       NIR_LOOP_PASS(progress, skip, shader, nir_opt_intrinsics);
++      NIR_LOOP_PASS(progress, skip, shader, nir_opt_nms_hack);
+       NIR_LOOP_PASS_NOT_IDEMPOTENT(progress, skip, shader, nir_opt_algebraic);
+       NIR_LOOP_PASS(progress, skip, shader, nir_opt_phi_to_bool);
+       NIR_LOOP_PASS(progress, skip, shader, nir_opt_phi_precision);
+diff --git a/src/compiler/nir/nir.h b/src/compiler/nir/nir.h
+index 11e23419001..43de4fe280b 100644
+--- a/src/compiler/nir/nir.h
++++ b/src/compiler/nir/nir.h
+@@ -6949,6 +6949,7 @@ bool nir_opt_algebraic_distribute_src_mods(nir_shader *shader);
+ bool nir_opt_algebraic_integer_promotion(nir_shader *shader);
+ bool nir_opt_reassociate_matrix_mul(nir_shader *shader);
+ bool nir_opt_reassociate_for_fma(nir_shader *shader);
++bool nir_opt_nms_hack(nir_shader *shader);
+ bool nir_opt_constant_folding(nir_shader *shader);
+ 
+ bool nir_opt_fp_math_ctrl(nir_shader *shader);
+diff --git a/src/compiler/nir/nir_opt_algebraic.py b/src/compiler/nir/nir_opt_algebraic.py
+index 1f128e04c1e..e3c5eedf794 100644
+--- a/src/compiler/nir/nir_opt_algebraic.py
++++ b/src/compiler/nir/nir_opt_algebraic.py
+@@ -4375,6 +4375,11 @@ reassoc_fma_optimizations = [
+      ('fadd', ('fneg', a), ('fadd', ('fneg', b), c))),
+ ]
+ 
++nms_hack = [
++    #(('ishr', ('ffma_weak', a, b, c), 1), ('ishr', ('!ffma', a, b, c), 1)),
++    (('ishr', ('ffma_weak', a, b, c), 1), ('ishr', ('!fadd', ('!fmul', a, b), c), 1)),
++]
++
+ # Those optimizations try to reverse integer promotion found in e.g. OpenCL C. Those should be ran
+ # before any bit_size lowering is done.
+ integer_promotion_optimizations = []
+@@ -4456,6 +4461,12 @@ passes.append(nir_algebraic.AlgebraicPass(
+     build_tests=build_tests
+ ))
+ 
++passes.append(nir_algebraic.AlgebraicPass(
++    "nir_opt_nms_hack",
++    nms_hack,
++    build_tests=build_tests
++))
++
+ if build_tests:
+     with open(args.out_tests, "w", encoding='utf-8') as f:
+         for p in passes:
+-- 
+2.55.0
+
